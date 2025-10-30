@@ -17,6 +17,7 @@ loguru==0.7.2
 # Data Analysis
 pandas==2.1.4
 numpy==1.26.2
+python-dateutil==2.8.2
 
 # Task Scheduling
 schedule==1.2.0
