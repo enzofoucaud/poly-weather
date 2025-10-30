@@ -195,13 +195,20 @@ class Settings(BaseSettings):
         return v.upper()
 
     @validator("polymarket_private_key")
-    def validate_private_key(cls, v):
+    def validate_private_key(cls, v, values):
         """Validate private key format."""
-        if not v or v == "0x" + "0" * 64:
+        # Allow dummy key in dry-run mode
+        dry_run = values.get('dry_run_mode', True)
+        if dry_run and (not v or v == "0x" + "0" * 64):
+            # Return dummy key for dry-run
+            return "0x" + "0" * 64
+
+        if not v:
             raise ValueError(
-                "polymarket_private_key must be set to a valid private key. "
+                "polymarket_private_key must be set. "
                 "Please update your .env file."
             )
+
         if not v.startswith("0x"):
             v = "0x" + v
         if len(v) != 66:  # 0x + 64 hex chars
