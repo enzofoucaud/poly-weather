@@ -287,10 +287,11 @@ class WeatherClient:
         forecast_dict = self.get_forecast(days)
 
         forecasts = []
-        now = datetime.now()
+        now = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
 
         for date, max_temp in forecast_dict.items():
-            days_ahead = (date - now).days
+            date_normalized = date.replace(hour=0, minute=0, second=0, microsecond=0)
+            days_ahead = (date_normalized - now).days
 
             # Calculate confidence: higher for near-term forecasts
             # J-0: 0.95, J-1: 0.85, J-2: 0.75, J-3: 0.65, etc.

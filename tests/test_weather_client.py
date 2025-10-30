@@ -194,14 +194,21 @@ class TestWeatherClient:
         assert client._forecast_cache is None
         assert client._forecast_cache_time is None
 
+    @patch('time.sleep')  # Mock sleep to speed up test
     @patch('src.clients.weather.requests.get')
-    def test_request_retry_on_timeout(self, mock_get, client):
+    def test_request_retry_on_timeout(self, mock_get, mock_sleep, client):
         """Test that requests are retried on timeout."""
+        import requests
+
         # First two calls timeout, third succeeds
+        mock_response = Mock()
+        mock_response.json.return_value = {"calendarDayTemperatureMax": [62]}
+        mock_response.raise_for_status = Mock()
+
         mock_get.side_effect = [
-            Exception("Timeout"),
-            Exception("Timeout"),
-            Mock(json=lambda: {"calendarDayTemperatureMax": [62]}, raise_for_status=Mock())
+            requests.exceptions.Timeout("Timeout"),
+            requests.exceptions.Timeout("Timeout"),
+            mock_response
         ]
 
         # Should succeed after retries

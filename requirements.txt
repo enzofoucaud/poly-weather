@@ -1,7 +1,6 @@
 # Blockchain & Polymarket
-web3==6.11.3
+web3>=7.0.0
 py-clob-client==0.26.0
-eth-account>=0.13.0
 
 # HTTP & API
 requests==2.31.0
