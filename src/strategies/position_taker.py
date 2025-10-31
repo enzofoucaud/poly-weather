@@ -113,8 +113,8 @@ class PositionTakerStrategy(BaseStrategy):
             )
             return None
 
-        # Calculate position size
-        position_size = self._calculate_position_size(
+        # Calculate position size (async)
+        position_size = await self._calculate_position_size(
             edge=edge,
             confidence=forecast.confidence,
             days_ahead=days_until,
@@ -178,7 +178,7 @@ class PositionTakerStrategy(BaseStrategy):
 
         return (matching_outcome, edge)
 
-    def _calculate_position_size(
+    async def _calculate_position_size(
         self,
         edge: float,
         confidence: float,
@@ -197,8 +197,8 @@ class PositionTakerStrategy(BaseStrategy):
         Returns:
             Position size in USDC
         """
-        # Get available balance
-        balance = self.client.get_balance()
+        # Get available balance (async)
+        balance = await self.client.get_balance()
 
         # Use Kelly Criterion
         # Edge = expected value - 1

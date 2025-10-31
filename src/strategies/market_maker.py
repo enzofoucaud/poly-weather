@@ -290,15 +290,15 @@ class MarketMakerStrategy(BaseStrategy):
             f"{len(self.inventory)} outcomes with positions"
         )
 
-    def check_circuit_breakers(self) -> bool:
+    async def check_circuit_breakers(self) -> bool:
         """
         Check if circuit breakers should stop market making.
 
         Returns:
             True if should stop
         """
-        # Calculate current P&L
-        current_balance = self.client.get_balance()
+        # Calculate current P&L (async)
+        current_balance = await self.client.get_balance()
         position_value = sum(p.current_value() for p in self.positions)
         total_value = current_balance + position_value
 
@@ -354,8 +354,8 @@ class MarketMakerStrategy(BaseStrategy):
 
         while not self.stopped:
             try:
-                # Check circuit breakers
-                if self.check_circuit_breakers():
+                # Check circuit breakers (async)
+                if await self.check_circuit_breakers():
                     logger.warning(f"[{self.name}] Circuit breaker triggered, stopping")
                     break
 

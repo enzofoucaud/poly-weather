@@ -4,6 +4,7 @@ Monitors historical weather data and triggers position adjustments.
 """
 
 import time
+import asyncio
 from typing import Optional, Dict, Callable
 from datetime import datetime, timedelta
 from dataclasses import dataclass
@@ -68,7 +69,7 @@ class RealtimeMonitor:
 
         return today == target_date
 
-    def get_current_max(self) -> Optional[float]:
+    async def get_current_max(self) -> Optional[float]:
         """
         Get current maximum temperature observed today.
 
@@ -76,7 +77,7 @@ class RealtimeMonitor:
             Current max temperature or None if no data
         """
         try:
-            data = self.weather_client.get_historical_today()
+            data = await self.weather_client.get_historical_today()
             current_max = data.get("current_max")
 
             if current_max is not None:
@@ -139,7 +140,7 @@ class RealtimeMonitor:
 
         return False
 
-    def monitor_until_end_of_day(
+    async def monitor_until_end_of_day(
         self,
         market: TemperatureMarket,
         on_change_callback: Optional[Callable[[float, float], None]] = None,
@@ -178,8 +179,8 @@ class RealtimeMonitor:
                     logger.info("End hour reached, stopping monitoring")
                     break
 
-                # Get current max
-                current_max = self.get_current_max()
+                # Get current max (async)
+                current_max = await self.get_current_max()
 
                 if current_max is not None:
                     num_checks += 1
@@ -198,7 +199,7 @@ class RealtimeMonitor:
                                 logger.error(f"Callback error: {e}")
 
                 # Sleep until next check
-                time.sleep(self.check_interval)
+                await asyncio.sleep(self.check_interval)
 
         except KeyboardInterrupt:
             logger.info("Monitoring interrupted by user")
