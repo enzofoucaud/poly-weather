@@ -5,6 +5,8 @@ Automated trading bot for temperature prediction markets on Polymarket.
 ## Features
 
 - **Weather Forecasting Integration**: Uses Weather.com API for accurate temperature predictions
+- **Real-time Price Updates**: WebSocket integration for <1s latency (60x faster than polling)
+- **Auto-Discovery**: Automatically finds temperature markets for upcoming days
 - **Multiple Trading Strategies**:
   - Position Taking: Takes directional positions based on forecasts
   - Market Making: Provides liquidity and captures the spread
@@ -79,9 +81,17 @@ python main.py run --live
 ### Run Tests
 
 ```bash
-python main.py test
-# or directly:
-pytest tests/ -v
+# All tests with helper script
+./run_tests.sh all
+
+# Unit tests only (fast, ~2.5s)
+./run_tests.sh unit
+
+# Integration tests (slower, makes real API calls)
+./run_tests.sh integration
+
+# Or with pytest directly
+pytest tests/unit/ -v
 ```
 
 ## How It Works
@@ -129,11 +139,13 @@ The bot operates as a state machine with the following states:
 ```
 poly-weather/
 ├── main.py                 # CLI entry point
+├── run_tests.sh            # Test runner script
 ├── src/
-│   ├── bot.py             # Main bot orchestrator
+│   ├── bot.py             # Main bot orchestrator (with WebSocket)
 │   ├── clients/           # API clients
 │   │   ├── weather.py
 │   │   ├── polymarket.py
+│   │   ├── polymarket_ws.py          # WebSocket client
 │   │   └── polymarket_simulator.py
 │   ├── config/            # Configuration
 │   │   └── settings.py
@@ -147,8 +159,18 @@ poly-weather/
 │   └── utils/             # Utilities
 │       ├── helpers.py
 │       ├── logger.py
-│       └── realtime_monitor.py
-├── tests/                 # Test suite (57 tests)
+│       ├── realtime_monitor.py
+│       └── websocket_thread.py       # WebSocket wrapper
+├── tests/                 # Test suite (63 tests)
+│   ├── README.md          # Test documentation
+│   ├── unit/              # Unit tests (57, ~2.5s)
+│   └── integration/       # Integration tests (6, 15s-2min)
+├── docs/                  # Documentation
+│   ├── README.md          # Documentation index
+│   ├── QUICK_START.md
+│   ├── WEBSOCKET_COMPLETE.md
+│   ├── ASYNC_MIGRATION_GUIDE.md
+│   └── ...more guides
 ├── logs/                  # Log files
 ├── data/                  # Database and cache
 └── requirements.txt
@@ -188,17 +210,23 @@ Logs are saved in `logs/bot_YYYY-MM-DD.log`. Check them for:
 Run the comprehensive test suite:
 
 ```bash
-# All tests
-pytest tests/ -v
+# Using helper script (recommended)
+./run_tests.sh unit           # Fast unit tests (~2.5s)
+./run_tests.sh integration    # Slower integration tests
+./run_tests.sh all            # All tests
+./run_tests.sh coverage       # With coverage report
+
+# Or with pytest directly
+pytest tests/unit/ -v
+pytest tests/integration/ -v
 
 # Specific test file
-pytest tests/test_position_taker.py -v
-
-# With coverage
-pytest tests/ --cov=src --cov-report=html
+pytest tests/unit/test_position_taker.py -v
 ```
 
-Current test coverage: **57 tests, 100% passing**
+Current test coverage: **63 tests (57 unit + 6 integration), 100% passing**
+
+See [tests/README.md](tests/README.md) for detailed test documentation.
 
 ## Risk Disclaimer
 
@@ -245,12 +273,26 @@ Contributions are welcome! Please:
 
 [MIT License](LICENSE)
 
+## Documentation
+
+Comprehensive guides are available in the [docs/](docs/) directory:
+
+- **[Quick Start](docs/QUICK_START.md)** - Get started in 5 minutes
+- **[WebSocket Guide](docs/WEBSOCKET_COMPLETE.md)** - Enable real-time price updates (<1s latency)
+- **[Market Discovery](docs/AUTO_DISCOVERY.md)** - Understand auto-discovery
+- **[Logs Guide](docs/LOGS_GUIDE.md)** - Understand bot logs
+- **[Test Structure](docs/TEST_STRUCTURE.md)** - Test organization
+- **[Async Migration](docs/ASYNC_MIGRATION_GUIDE.md)** - Future 100% async architecture
+
+See [docs/README.md](docs/README.md) for the complete documentation index.
+
 ## Support
 
 For issues and questions:
-- Check the logs in `logs/` directory
+- Check the [documentation](docs/README.md)
+- Review logs in `logs/` directory
 - Run `python main.py status` to verify configuration
-- Review test output: `pytest tests/ -v`
+- Run tests: `./run_tests.sh unit`
 
 ## Roadmap
 
