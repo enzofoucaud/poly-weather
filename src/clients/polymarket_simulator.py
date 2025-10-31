@@ -62,20 +62,58 @@ class PolymarketSimulator:
         self,
         city: str = "NYC",
         active_only: bool = True,
-        event_slug: Optional[str] = None
+        event_slug: Optional[str] = None,
+        use_real_markets: bool = True
     ) -> List[TemperatureMarket]:
         """
         Get temperature markets (simulated).
-        Returns mock temperature markets for testing.
+
+        If use_real_markets=True and event_slug is provided, fetches real market data
+        from Polymarket but still simulates trades.
+
+        Otherwise, returns mock temperature markets for testing.
 
         Args:
             city: City name
             active_only: Only return active markets
-            event_slug: Event slug (ignored in simulator)
+            event_slug: Event slug to fetch real market data
+            use_real_markets: If True, fetch real market data when event_slug provided
 
         Returns:
             List of TemperatureMarket objects
         """
+        # If event_slug provided and use_real_markets is True, fetch real markets
+        if event_slug and use_real_markets:
+            logger.info(f"[SIMULATOR] Fetching REAL market data for {event_slug} (trades will be simulated)")
+            try:
+                from .polymarket import PolymarketClient
+
+                # Create a temporary real client just to fetch market data
+                dummy_key = "0x" + "0" * 64
+                real_client = PolymarketClient(
+                    private_key=dummy_key,
+                    chain_id=137,
+                    dry_run=True
+                )
+
+                # Fetch real markets
+                markets = real_client.get_temperature_markets(
+                    city=city,
+                    active_only=active_only,
+                    event_slug=event_slug
+                )
+
+                if markets:
+                    logger.info(f"[SIMULATOR] Found {len(markets)} real market(s)")
+                    return markets
+                else:
+                    logger.warning(f"[SIMULATOR] No real markets found, falling back to mock data")
+
+            except Exception as e:
+                logger.error(f"[SIMULATOR] Failed to fetch real markets: {e}")
+                logger.info("[SIMULATOR] Falling back to mock data")
+
+        # Fall back to mock market generation
         from datetime import datetime, timedelta
         from ..models.market import PolymarketOutcome, TemperatureRange
 

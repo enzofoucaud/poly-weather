@@ -65,6 +65,10 @@ class Settings(BaseSettings):
         default=None,
         description="Specific event slug to target (e.g., 'highest-temperature-in-nyc-on-october-30')"
     )
+    event_slugs: Optional[str] = Field(
+        default=None,
+        description="Multiple event slugs separated by comma (e.g., 'slug1,slug2,slug3')"
+    )
 
     # ============================================
     # TRADING CONFIGURATION

@@ -148,28 +148,64 @@ class TradingBot:
         """
         Scan for temperature markets.
 
+        Automatically discovers markets if no slugs are specified.
+
         Returns:
             List of active temperature markets
         """
         logger.info("Scanning for temperature markets...")
 
         try:
-            markets = self.poly_client.get_temperature_markets(
-                city=self.settings.target_city,
-                active_only=True,
-                event_slug=self.settings.event_slug
-            )
+            all_markets = []
+            slugs_to_fetch = []
 
-            logger.info(f"Found {len(markets)} active markets")
+            # 1. Check if multiple event slugs are manually provided
+            if self.settings.event_slugs:
+                slugs_to_fetch = [s.strip() for s in self.settings.event_slugs.split(',') if s.strip()]
+                logger.info(f"Using manually specified event slugs: {slugs_to_fetch}")
 
-            for market in markets:
+            # 2. Check if single event_slug is provided
+            elif self.settings.event_slug:
+                slugs_to_fetch = [self.settings.event_slug]
+                logger.info(f"Using manually specified event slug: {self.settings.event_slug}")
+
+            # 3. Auto-discover markets if no slugs specified
+            else:
+                logger.info(f"No event slugs specified, auto-discovering markets for {self.settings.target_city}")
+                from src.clients.market_discovery import MarketDiscovery
+
+                discovery = MarketDiscovery(city=self.settings.target_city)
+                slugs_to_fetch = discovery.get_event_slugs_for_next_days(
+                    days_ahead=self.settings.advance_days
+                )
+
+                if slugs_to_fetch:
+                    logger.info(f"Auto-discovered {len(slugs_to_fetch)} market(s): {slugs_to_fetch}")
+                else:
+                    logger.warning("No temperature markets found through auto-discovery")
+
+            # Fetch markets for all slugs
+            for slug in slugs_to_fetch:
+                try:
+                    markets = self.poly_client.get_temperature_markets(
+                        city=self.settings.target_city,
+                        active_only=True,
+                        event_slug=slug
+                    )
+                    all_markets.extend(markets)
+                except Exception as e:
+                    logger.error(f"Failed to fetch market for slug '{slug}': {e}")
+
+            logger.info(f"Found {len(all_markets)} active markets")
+
+            for market in all_markets:
                 days_until = market.days_until_target()
                 logger.info(
                     f"  - {market.question[:50]}... | "
                     f"Target: {market.target_date.date()} (J-{days_until})"
                 )
 
-            return markets
+            return all_markets
 
         except Exception as e:
             logger.error(f"Failed to scan markets: {e}")
