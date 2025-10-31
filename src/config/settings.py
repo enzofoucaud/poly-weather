@@ -55,6 +55,18 @@ class Settings(BaseSettings):
     )
 
     # ============================================
+    # MARKET DISCOVERY CONFIGURATION
+    # ============================================
+    target_city: str = Field(
+        default="NYC",
+        description="Target city for temperature markets"
+    )
+    event_slug: Optional[str] = Field(
+        default=None,
+        description="Specific event slug to target (e.g., 'highest-temperature-in-nyc-on-october-30')"
+    )
+
+    # ============================================
     # TRADING CONFIGURATION
     # ============================================
     max_position_size: float = Field(

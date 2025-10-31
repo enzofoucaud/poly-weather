@@ -155,8 +155,9 @@ class TradingBot:
 
         try:
             markets = self.poly_client.get_temperature_markets(
-                city="NYC",
-                active_only=True
+                city=self.settings.target_city,
+                active_only=True,
+                event_slug=self.settings.event_slug
             )
 
             logger.info(f"Found {len(markets)} active markets")
