@@ -1,8 +1,10 @@
 """
 Weather.com API client for fetching forecasts and historical data.
+ASYNC VERSION - converted from requests to aiohttp.
 """
 
-import requests
+import aiohttp
+import asyncio
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 from dataclasses import dataclass
@@ -22,7 +24,7 @@ class HistoricalObservation:
 
 
 class WeatherClient:
-    """Client for interacting with Weather.com API."""
+    """Client for interacting with Weather.com API (ASYNC)."""
 
     BASE_URL = "https://api.weather.com"
 
@@ -54,9 +56,9 @@ class WeatherClient:
 
         logger.info(f"WeatherClient initialized for location {location_id}")
 
-    def _make_request(self, url: str, params: Dict) -> Dict:
+    async def _make_request(self, url: str, params: Dict) -> Dict:
         """
-        Make HTTP request with error handling and retries.
+        Make async HTTP request with error handling and retries.
 
         Args:
             url: Full URL to request
@@ -66,44 +68,40 @@ class WeatherClient:
             JSON response as dict
 
         Raises:
-            requests.RequestException: If request fails after retries
+            aiohttp.ClientError: If request fails after retries
         """
         max_retries = 3
         retry_delay = 1
 
         for attempt in range(max_retries):
             try:
-                response = requests.get(
-                    url,
-                    params=params,
-                    timeout=self.timeout
-                )
-                response.raise_for_status()
-                return response.json()
+                timeout = aiohttp.ClientTimeout(total=self.timeout)
+                async with aiohttp.ClientSession(timeout=timeout) as session:
+                    async with session.get(url, params=params) as response:
+                        response.raise_for_status()
+                        return await response.json()
 
-            except requests.exceptions.Timeout:
+            except asyncio.TimeoutError:
                 logger.warning(f"Request timeout (attempt {attempt + 1}/{max_retries})")
                 if attempt < max_retries - 1:
-                    import time
-                    time.sleep(retry_delay * (attempt + 1))
+                    await asyncio.sleep(retry_delay * (attempt + 1))
                 else:
                     raise
 
-            except requests.exceptions.HTTPError as e:
-                logger.error(f"HTTP error: {e.response.status_code} - {e.response.text}")
+            except aiohttp.ClientResponseError as e:
+                logger.error(f"HTTP error: {e.status} - {e.message}")
                 raise
 
-            except requests.exceptions.RequestException as e:
+            except aiohttp.ClientError as e:
                 logger.error(f"Request failed: {e}")
                 if attempt < max_retries - 1:
-                    import time
-                    time.sleep(retry_delay * (attempt + 1))
+                    await asyncio.sleep(retry_delay * (attempt + 1))
                 else:
                     raise
 
-    def get_forecast(self, days: int = 7) -> Dict[datetime, float]:
+    async def get_forecast(self, days: int = 7) -> Dict[datetime, float]:
         """
-        Get temperature forecast for the next N days.
+        Get temperature forecast for the next N days (ASYNC).
 
         Args:
             days: Number of days to forecast (max 7)
@@ -131,7 +129,7 @@ class WeatherClient:
         }
 
         try:
-            data = self._make_request(url, params)
+            data = await self._make_request(url, params)
 
             # Update cache
             self._forecast_cache = data
@@ -181,9 +179,9 @@ class WeatherClient:
             logger.error(f"Failed to parse forecast data: {e}")
             return {}
 
-    def get_historical_today(self) -> Dict:
+    async def get_historical_today(self) -> Dict:
         """
-        Get historical observations for today.
+        Get historical observations for today (ASYNC).
         Called frequently (every second) on target day to track max temperature.
 
         Returns:
@@ -205,7 +203,7 @@ class WeatherClient:
         }
 
         try:
-            data = self._make_request(url, params)
+            data = await self._make_request(url, params)
             return self._parse_historical(data)
 
         except Exception as e:
@@ -274,9 +272,9 @@ class WeatherClient:
                 "observations": []
             }
 
-    def get_forecast_with_confidence(self, days: int = 7) -> List[WeatherForecast]:
+    async def get_forecast_with_confidence(self, days: int = 7) -> List[WeatherForecast]:
         """
-        Get forecast with confidence scores based on how far ahead.
+        Get forecast with confidence scores based on how far ahead (ASYNC).
 
         Args:
             days: Number of days to forecast
@@ -284,7 +282,7 @@ class WeatherClient:
         Returns:
             List of WeatherForecast objects with confidence scores
         """
-        forecast_dict = self.get_forecast(days)
+        forecast_dict = await self.get_forecast(days)
 
         forecasts = []
         now = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
