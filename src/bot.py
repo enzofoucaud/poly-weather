@@ -6,6 +6,7 @@ Coordinates all components: weather client, Polymarket client, strategies, monit
 import time
 import signal
 import sys
+import asyncio
 from enum import Enum
 from typing import Dict, List, Optional
 from datetime import datetime, timedelta
@@ -281,7 +282,7 @@ class TradingBot:
                     else:
                         logger.warning(f"   ❌ Order execution failed")
 
-    def scan_markets(self) -> List[TemperatureMarket]:
+    async def scan_markets(self) -> List[TemperatureMarket]:
         """
         Scan for temperature markets.
 
@@ -321,10 +322,10 @@ class TradingBot:
                 else:
                     logger.warning("No temperature markets found through auto-discovery")
 
-            # Fetch markets for all slugs
+            # Fetch markets for all slugs (async)
             for slug in slugs_to_fetch:
                 try:
-                    markets = self.poly_client.get_temperature_markets(
+                    markets = await self.poly_client.get_temperature_markets(
                         city=self.settings.target_city,
                         active_only=True,
                         event_slug=slug
@@ -372,7 +373,7 @@ class TradingBot:
             logger.error(f"Failed to scan markets: {e}")
             return []
 
-    def get_forecast_for_market(
+    async def get_forecast_for_market(
         self,
         market: TemperatureMarket
     ) -> Optional[WeatherForecast]:
@@ -386,7 +387,7 @@ class TradingBot:
             Weather forecast or None
         """
         try:
-            forecasts = self.weather_client.get_forecast_with_confidence(days=7)
+            forecasts = await self.weather_client.get_forecast_with_confidence(days=7)
 
             # Find forecast matching market's target date
             target_date = market.target_date.date()
@@ -438,7 +439,7 @@ class TradingBot:
         # Too far in future
         return BotState.SCANNING
 
-    def handle_positioning(
+    async def handle_positioning(
         self,
         market: TemperatureMarket,
         forecast: WeatherForecast
@@ -456,8 +457,8 @@ class TradingBot:
         try:
             logger.info(f"\n   🔍 Analyzing market opportunities...")
 
-            # Analyze market and potentially place order
-            order = self.position_taker.analyze_market(market, forecast)
+            # Analyze market and potentially place order (async)
+            order = await self.position_taker.analyze_market(market, forecast)
 
             if order:
                 logger.info(f"   ✅ Edge found! Placing order:")
@@ -469,8 +470,8 @@ class TradingBot:
                 # Add market_id to order
                 order.market_id = market.market_id
 
-                # Execute order
-                if self.position_taker.execute_order(order):
+                # Execute order (async)
+                if await self.position_taker.execute_order(order):
                     logger.info(f"   🎉 Position successfully taken!")
                     logger.info(f"      Order ID: {order.outcome_id[:20]}...")
                 else:
@@ -479,13 +480,13 @@ class TradingBot:
                 logger.info(f"   ℹ️  No edge detected - market prices align with forecast")
                 logger.info(f"      This is normal and healthy! Waiting for better opportunity.")
 
-            # Update positions
-            self.position_taker.update_positions()
+            # Update positions (async)
+            await self.position_taker.update_positions()
 
         except Exception as e:
             logger.error(f"   ❌ Error in positioning: {e}")
 
-    def handle_market_making(
+    async def handle_market_making(
         self,
         market: TemperatureMarket,
         forecast: WeatherForecast
@@ -515,7 +516,7 @@ class TradingBot:
             self.threads.append(thread)
             self.monitors[market.market_id] = thread
 
-    def handle_day_of_monitoring(
+    async def handle_day_of_monitoring(
         self,
         market: TemperatureMarket
     ) -> None:
@@ -565,7 +566,7 @@ class TradingBot:
                 thread.start()
                 self.threads.append(thread)
 
-    def run_main_loop(self) -> None:
+    async def run_main_loop(self) -> None:
         """Run the main trading loop."""
         logger.info("Starting main trading loop")
         self.running = True
@@ -581,12 +582,12 @@ class TradingBot:
                 logger.info(f"{'='*60}")
 
                 try:
-                    # Scan for markets
-                    markets = self.scan_markets()
+                    # Scan for markets (async)
+                    markets = await self.scan_markets()
 
                     if not markets:
                         logger.info("No markets found, waiting...")
-                        time.sleep(self.settings.check_interval_seconds)
+                        await asyncio.sleep(self.settings.check_interval_seconds)
                         continue
 
                     # Process each market
@@ -601,9 +602,9 @@ class TradingBot:
                         logger.info(f"   Target: {market.target_date.date()} (J-{market.days_until_target()})")
                         logger.info(f"{'─'*70}")
 
-                        # Get forecast
+                        # Get forecast (async)
                         logger.info(f"☁️  Fetching weather forecast for {market.target_date.date()}...")
-                        forecast = self.get_forecast_for_market(market)
+                        forecast = await self.get_forecast_for_market(market)
 
                         if not forecast:
                             logger.warning(f"⚠️  No forecast available, skipping this market")
@@ -634,24 +635,24 @@ class TradingBot:
                         emoji = state_emojis.get(market_state, "❓")
                         logger.info(f"{emoji} State: {market_state.value}")
 
-                        # Handle based on state
+                        # Handle based on state (async)
                         if market_state == BotState.POSITIONING:
                             logger.info(f"🎯 Analyzing for position taking...")
-                            self.handle_positioning(market, forecast)
+                            await self.handle_positioning(market, forecast)
 
                         elif market_state == BotState.MARKET_MAKING:
                             logger.info(f"📊 Running market making strategy...")
-                            self.handle_market_making(market, forecast)
+                            await self.handle_market_making(market, forecast)
 
                         elif market_state == BotState.DAY_OF_MONITORING:
                             logger.info(f"🔴 LIVE: Starting real-time monitoring (target day is TODAY)")
-                            self.handle_day_of_monitoring(market)
+                            await self.handle_day_of_monitoring(market)
 
                         elif market_state == BotState.WAITING_RESOLUTION:
                             logger.info(f"⏳ Market ended, waiting for resolution...")
                             logger.info(f"   Will check back later")
 
-                    # Wait before next iteration
+                    # Wait before next iteration (async)
                     # If WebSocket is active, poll less frequently (just refresh forecasts)
                     if self.ws_thread and self.ws_thread.is_connected():
                         # WebSocket handles price updates - just refresh forecasts every 10 minutes
@@ -667,11 +668,11 @@ class TradingBot:
                             f"\n⏱️  [POLLING MODE] Next scan in {sleep_time}s"
                         )
 
-                    time.sleep(sleep_time)
+                    await asyncio.sleep(sleep_time)
 
                 except Exception as e:
                     logger.error(f"Error in iteration: {e}", exc_info=True)
-                    time.sleep(30)  # Wait longer on error
+                    await asyncio.sleep(30)  # Wait longer on error
 
         except KeyboardInterrupt:
             logger.info("\nShutdown signal received")
@@ -724,7 +725,7 @@ class TradingBot:
         signal.signal(signal.SIGTERM, signal_handler)
 
     def run(self) -> None:
-        """Run the bot."""
+        """Run the bot (sync wrapper for async event loop)."""
         self.setup_signal_handlers()
 
         logger.info("\n" + "="*60)
@@ -743,8 +744,8 @@ class TradingBot:
             logger.info("✅ WebSocket thread started (will connect after market discovery)")
 
         try:
-            # Run main loop
-            self.run_main_loop()
+            # Run main loop via asyncio.run()
+            asyncio.run(self.run_main_loop())
 
         finally:
             # Ensure WebSocket is stopped
