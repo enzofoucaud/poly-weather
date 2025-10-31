@@ -174,7 +174,7 @@ class PolymarketClient:
 
     def _search_markets(self, query: str) -> List[Dict]:
         """
-        Search for markets by query.
+        Search for markets by query using Gamma API.
 
         Args:
             query: Search query
@@ -182,21 +182,32 @@ class PolymarketClient:
         Returns:
             List of market data dictionaries
         """
-        # This is a placeholder - actual implementation depends on
-        # how Polymarket's API handles market search
-        # You may need to use their REST API or subgraph
-
         try:
-            # Example: Get all markets and filter
-            # In production, you'd want to use proper API endpoints
-            markets = self.client.get_markets()
+            import requests
+
+            # Use Polymarket's Gamma API (public markets endpoint)
+            url = "https://gamma-api.polymarket.com/markets"
+
+            params = {
+                "limit": 100,
+                "archived": "false",
+                "closed": "false"
+            }
+
+            response = requests.get(url, params=params, timeout=10)
+            response.raise_for_status()
+
+            all_markets = response.json()
+
+            logger.debug(f"Fetched {len(all_markets)} markets from Gamma API")
 
             # Filter by query (case-insensitive)
             filtered = [
-                m for m in markets
+                m for m in all_markets
                 if query.lower() in m.get("question", "").lower()
             ]
 
+            logger.info(f"Found {len(filtered)} markets matching '{query}'")
             return filtered
 
         except Exception as e:
@@ -208,25 +219,25 @@ class PolymarketClient:
         Parse market data into TemperatureMarket object.
 
         Args:
-            market_data: Raw market data from API
+            market_data: Raw market data from Gamma API
 
         Returns:
             TemperatureMarket object
         """
-        # Extract basic info
-        market_id = market_data.get("condition_id", "")
+        # Extract basic info from Gamma API response
+        market_id = market_data.get("conditionId", "")
         question = market_data.get("question", "")
 
         # Parse target date from question
         # Example: "Highest temperature in NYC on October 30?"
         target_date = self._parse_target_date_from_question(question)
 
-        # Parse outcomes
+        # Parse outcomes from the outcomes array
         outcomes = []
-        tokens = market_data.get("tokens", [])
+        outcomes_data = market_data.get("outcomes", [])
 
-        for token in tokens:
-            outcome = self._parse_outcome(token)
+        for i, outcome_text in enumerate(outcomes_data):
+            outcome = self._parse_outcome(market_data, outcome_text, i)
             if outcome:
                 outcomes.append(outcome)
 
@@ -236,45 +247,59 @@ class PolymarketClient:
             question=question,
             target_date=target_date,
             outcomes=outcomes,
-            volume_24h=float(market_data.get("volume_24h", 0)),
+            volume_24h=float(market_data.get("volume24hr", 0)),
             liquidity=float(market_data.get("liquidity", 0)),
             resolved=market_data.get("closed", False)
         )
 
         return market
 
-    def _parse_outcome(self, token_data: Dict) -> Optional[PolymarketOutcome]:
+    def _parse_outcome(self, market_data: Dict, outcome_text: str, index: int) -> Optional[PolymarketOutcome]:
         """
-        Parse outcome/token data.
+        Parse outcome data from Gamma API.
 
         Args:
-            token_data: Token data from API
+            market_data: Full market data containing token info
+            outcome_text: Outcome label (e.g., "61-62°F")
+            index: Index of this outcome in the outcomes array
 
         Returns:
             PolymarketOutcome object or None
         """
         try:
-            token_id = token_data.get("token_id", "")
-            outcome_text = token_data.get("outcome", "")
+            # Get token ID from outcomePrices array
+            outcome_prices = market_data.get("outcomePrices", [])
+            token_id = f"{market_data.get('conditionId', '')}_{index}"
+
+            # Get price for this outcome
+            price = 0.5  # Default
+            if index < len(outcome_prices):
+                try:
+                    price = float(outcome_prices[index])
+                except (ValueError, TypeError):
+                    logger.warning(f"Invalid price for outcome {index}: {outcome_prices[index]}")
 
             # Parse temperature range from outcome text
             temp_range = TemperatureRange.from_label(outcome_text)
 
-            # Get current price
-            price = float(token_data.get("price", 0.5))
+            # Get tokens data if available
+            tokens = market_data.get("tokens", [])
+            if index < len(tokens):
+                token_info = tokens[index]
+                token_id = token_info.get("token_id", token_id)
 
             outcome = PolymarketOutcome(
                 token_id=token_id,
                 price=price,
                 temperature_range=temp_range,
-                liquidity=float(token_data.get("liquidity", 0)),
-                volume_24h=float(token_data.get("volume_24h", 0))
+                liquidity=0.0,  # Not available in basic API response
+                volume_24h=0.0
             )
 
             return outcome
 
         except Exception as e:
-            logger.warning(f"Failed to parse outcome: {e}")
+            logger.warning(f"Failed to parse outcome '{outcome_text}': {e}")
             return None
 
     def _parse_target_date_from_question(self, question: str) -> datetime:

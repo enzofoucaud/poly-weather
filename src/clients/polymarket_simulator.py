@@ -64,9 +64,8 @@ class PolymarketSimulator:
         active_only: bool = True
     ) -> List[TemperatureMarket]:
         """
-        Get temperature markets.
-        In simulation mode, this would return mock markets or fetch real market data
-        without executing trades.
+        Get temperature markets (simulated).
+        Returns mock temperature markets for testing.
 
         Args:
             city: City name
@@ -75,10 +74,47 @@ class PolymarketSimulator:
         Returns:
             List of TemperatureMarket objects
         """
-        logger.info(f"[SIMULATOR] Fetching markets for {city}")
-        # In a real implementation, you might fetch actual market data
-        # but never execute trades
-        return []
+        from datetime import datetime, timedelta
+        from ..models.market import PolymarketOutcome, TemperatureRange
+
+        logger.info(f"[SIMULATOR] Generating mock markets for {city}")
+
+        # Create mock market for tomorrow
+        tomorrow = datetime.now() + timedelta(days=1)
+
+        outcomes = [
+            PolymarketOutcome(
+                token_id="sim_token_60_61",
+                price=0.15,
+                temperature_range=TemperatureRange.from_label("60-61°F")
+            ),
+            PolymarketOutcome(
+                token_id="sim_token_62_63",
+                price=0.35,
+                temperature_range=TemperatureRange.from_label("62-63°F")
+            ),
+            PolymarketOutcome(
+                token_id="sim_token_64_65",
+                price=0.30,
+                temperature_range=TemperatureRange.from_label("64-65°F")
+            ),
+            PolymarketOutcome(
+                token_id="sim_token_66_plus",
+                price=0.20,
+                temperature_range=TemperatureRange.from_label("66°F or higher")
+            ),
+        ]
+
+        market = TemperatureMarket(
+            market_id="sim_market_tomorrow",
+            question=f"Highest temperature in {city} on {tomorrow.strftime('%B %d')}?",
+            target_date=tomorrow,
+            outcomes=outcomes,
+            volume_24h=50000.0,
+            liquidity=10000.0
+        )
+
+        return [market]
 
     def get_market_orderbook(
         self,
