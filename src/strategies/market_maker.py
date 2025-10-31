@@ -6,6 +6,7 @@ Places simultaneous bid and ask orders to capture the spread.
 from typing import Optional, Dict, Tuple, List
 from datetime import datetime
 import time
+import asyncio
 
 from .base import BaseStrategy
 from ..models.market import TemperatureMarket, PolymarketOutcome, WeatherForecast
@@ -331,7 +332,7 @@ class MarketMakerStrategy(BaseStrategy):
 
         return False
 
-    def run_market_making_loop(
+    async def run_market_making_loop(
         self,
         market: TemperatureMarket,
         forecast: WeatherForecast,
@@ -408,7 +409,7 @@ class MarketMakerStrategy(BaseStrategy):
                 logger.debug(
                     f"[{self.name}] Sleeping for {self.update_interval}s"
                 )
-                time.sleep(self.update_interval)
+                await asyncio.sleep(self.update_interval)
 
             except KeyboardInterrupt:
                 logger.info(f"[{self.name}] Interrupted by user")
@@ -416,7 +417,7 @@ class MarketMakerStrategy(BaseStrategy):
 
             except Exception as e:
                 logger.error(f"[{self.name}] Error in market making loop: {e}")
-                time.sleep(self.update_interval)
+                await asyncio.sleep(self.update_interval)
 
         # Cleanup
         logger.info(f"[{self.name}] Stopping market making, cancelling all orders")
