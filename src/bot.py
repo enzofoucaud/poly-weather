@@ -17,7 +17,8 @@ from .clients.polymarket_simulator import PolymarketSimulator
 from .strategies.position_taker import PositionTakerStrategy
 from .strategies.market_maker import MarketMakerStrategy
 from .utils.realtime_monitor import RealtimeMonitor, PositionAdjuster
-from .models.market import TemperatureMarket, WeatherForecast
+from .utils.websocket_thread import WebSocketThread
+from .models.market import TemperatureMarket, WeatherForecast, PolymarketOutcome
 from .config.settings import get_settings
 from .utils.logger import setup_logger, get_logger, log_risk_alert
 
@@ -87,8 +88,27 @@ class TradingBot:
         self.market_states: Dict[str, BotState] = {}
         self.monitors: Dict[str, RealtimeMonitor] = {}
 
+        # Caching for WebSocket callbacks
+        self.forecasts: Dict[str, WeatherForecast] = {}  # market_id -> forecast
+        self.markets: Dict[str, TemperatureMarket] = {}  # market_id -> market
+
         # Threading
         self.threads: List[Thread] = []
+
+        # WebSocket client (only if enabled and not dry-run)
+        self.ws_thread: Optional[WebSocketThread] = None
+        if self.settings.use_websocket and not self.dry_run:
+            logger.info("Initializing WebSocket for real-time price updates...")
+            self.ws_thread = WebSocketThread(
+                on_price_change=self._on_price_change,
+                on_book_update=None,  # Not needed for now
+                ping_interval=self.settings.ws_ping_interval
+            )
+            logger.info("✅ WebSocket configured (will start after market discovery)")
+        elif self.dry_run:
+            logger.info("WebSocket disabled in dry-run mode")
+        else:
+            logger.info("WebSocket disabled by configuration")
 
         logger.info(f"Bot initialized | Dry run: {dry_run}")
 
@@ -143,6 +163,123 @@ class TradingBot:
         else:
             self.market_maker = None
             logger.info("Market Making strategy disabled")
+
+    def _on_price_change(self, data: Dict) -> None:
+        """
+        Handle real-time price change from WebSocket.
+
+        Called from WebSocket thread when price changes.
+
+        Args:
+            data: Price change data from WebSocket
+        """
+        try:
+            asset_id = data.get("asset_id")
+            best_bid = data.get("best_bid")
+            best_ask = data.get("best_ask")
+
+            # Validate data
+            if not asset_id or best_ask is None:
+                logger.debug(f"⚡ [WEBSOCKET] Incomplete price update (no asset_id or best_ask)")
+                return
+
+            logger.info(f"⚡ [WEBSOCKET] Price Update: {asset_id[:12]}...")
+            logger.debug(f"   Bid/Ask: ${best_bid} / ${best_ask}")
+
+            # Find which market/outcome this belongs to
+            market, outcome = self._find_market_and_outcome_by_token(asset_id)
+
+            if not market or not outcome:
+                logger.debug(f"   Market not tracked (yet)")
+                return
+
+            # Update cached price
+            old_price = outcome.price
+            outcome.price = float(best_ask)  # Use ask for buying
+
+            if old_price != outcome.price:
+                logger.info(f"   💰 {outcome.temperature_range.label}: ${old_price:.4f} → ${outcome.price:.4f}")
+
+            # Check if this creates an edge opportunity
+            forecast = self.forecasts.get(market.market_id)
+
+            if forecast:
+                self._check_real_time_edge(market, outcome, forecast)
+
+        except Exception as e:
+            logger.error(f"Error handling WebSocket price change: {e}")
+
+    def _find_market_and_outcome_by_token(
+        self,
+        token_id: str
+    ) -> tuple[Optional[TemperatureMarket], Optional[PolymarketOutcome]]:
+        """
+        Find market and outcome for a token ID.
+
+        Args:
+            token_id: Token/asset ID
+
+        Returns:
+            Tuple of (market, outcome) or (None, None) if not found
+        """
+        for market_id, market in self.markets.items():
+            for outcome in market.outcomes:
+                if outcome.token_id == token_id:
+                    return market, outcome
+        return None, None
+
+    def _check_real_time_edge(
+        self,
+        market: TemperatureMarket,
+        outcome: PolymarketOutcome,
+        forecast: WeatherForecast
+    ) -> None:
+        """
+        Check if price change creates immediate trading opportunity.
+
+        This is the KEY method - runs on every price update via WebSocket!
+
+        Args:
+            market: Temperature market
+            outcome: Outcome with updated price
+            forecast: Weather forecast for the market
+        """
+        # Check if forecast predicts this outcome
+        predicted_temp = forecast.max_temperature
+
+        if not outcome.temperature_range.contains(predicted_temp):
+            return  # Forecast doesn't predict this outcome
+
+        # Calculate edge
+        forecast_prob = forecast.confidence
+        market_prob = outcome.price
+        edge = forecast_prob - market_prob
+
+        if edge > self.settings.min_edge:
+            logger.info(f"⚡ REAL-TIME EDGE DETECTED!")
+            logger.info(f"   Outcome: {outcome.temperature_range.label}")
+            logger.info(f"   Edge: {edge:.2%}")
+            logger.info(f"   Forecast: {predicted_temp}°F @ {forecast_prob:.0%}")
+            logger.info(f"   Market: ${outcome.price:.4f}")
+
+            # Place order immediately using position taker
+            if self.position_taker:
+                order = self.position_taker._create_order(
+                    market=market,
+                    outcome=outcome,
+                    forecast=forecast,
+                    edge=edge
+                )
+
+                if order:
+                    # Add market_id
+                    order.market_id = market.market_id
+
+                    # Execute immediately
+                    if self.position_taker.execute_order(order):
+                        logger.info(f"   ✅ Order placed in <1s via WebSocket!")
+                    else:
+                        logger.warning(f"   ❌ Order execution failed")
 
     def scan_markets(self) -> List[TemperatureMarket]:
         """
@@ -216,6 +353,18 @@ class TradingBot:
                     logger.info(f"    • {outcome.temperature_range.label}: ${outcome.price:.3f}")
                 if len(market.outcomes) > 3:
                     logger.info(f"    ... and {len(market.outcomes) - 3} more outcomes")
+
+            # Subscribe to WebSocket for ALL token IDs
+            if self.ws_thread and self.ws_thread.is_connected() and all_markets:
+                all_token_ids = []
+                for market in all_markets:
+                    for outcome in market.outcomes:
+                        all_token_ids.append(outcome.token_id)
+
+                if all_token_ids:
+                    logger.info(f"\n📡 Subscribing to {len(all_token_ids)} tokens via WebSocket...")
+                    self.ws_thread.subscribe(all_token_ids)
+                    logger.info("✅ WebSocket subscriptions active - will receive real-time price updates!")
 
             return all_markets
 
@@ -465,6 +614,10 @@ class TradingBot:
                             f"(confidence: {forecast.confidence:.0%})"
                         )
 
+                        # Cache forecast and market for WebSocket callbacks
+                        self.forecasts[market.market_id] = forecast
+                        self.markets[market.market_id] = market
+
                         # Determine market state
                         market_state = self.determine_market_state(market)
                         self.market_states[market.market_id] = market_state
@@ -499,10 +652,22 @@ class TradingBot:
                             logger.info(f"   Will check back later")
 
                     # Wait before next iteration
-                    logger.info(
-                        f"\nSleeping for {self.settings.check_interval_seconds}s..."
-                    )
-                    time.sleep(self.settings.check_interval_seconds)
+                    # If WebSocket is active, poll less frequently (just refresh forecasts)
+                    if self.ws_thread and self.ws_thread.is_connected():
+                        # WebSocket handles price updates - just refresh forecasts every 10 minutes
+                        sleep_time = 600
+                        logger.info(
+                            f"\n⏱️  [WEBSOCKET MODE] Next scan in {sleep_time}s (10 min)"
+                        )
+                        logger.info(f"   Real-time price updates via WebSocket active!")
+                    else:
+                        # Fallback to polling
+                        sleep_time = self.settings.check_interval_seconds
+                        logger.info(
+                            f"\n⏱️  [POLLING MODE] Next scan in {sleep_time}s"
+                        )
+
+                    time.sleep(sleep_time)
 
                 except Exception as e:
                     logger.error(f"Error in iteration: {e}", exc_info=True)
@@ -520,6 +685,11 @@ class TradingBot:
         self.running = False
         self.shutdown_event.set()
         self.state = BotState.STOPPED
+
+        # Stop WebSocket
+        if self.ws_thread:
+            logger.info("Stopping WebSocket thread...")
+            self.ws_thread.stop()
 
         # Stop all strategies
         if self.market_maker:
@@ -563,7 +733,20 @@ class TradingBot:
         logger.info(f"Mode: {'DRY RUN' if self.dry_run else 'LIVE TRADING'}")
         logger.info(f"Position Taking: {'✓' if self.position_taker else '✗'}")
         logger.info(f"Market Making: {'✓' if self.market_maker else '✗'}")
+        logger.info(f"WebSocket: {'✓ ENABLED' if self.ws_thread else '✗ Disabled'}")
         logger.info("="*60 + "\n")
 
-        # Run main loop
-        self.run_main_loop()
+        # Start WebSocket if enabled
+        if self.ws_thread:
+            logger.info("🚀 Starting WebSocket for real-time price updates...")
+            self.ws_thread.start()
+            logger.info("✅ WebSocket thread started (will connect after market discovery)")
+
+        try:
+            # Run main loop
+            self.run_main_loop()
+
+        finally:
+            # Ensure WebSocket is stopped
+            if self.ws_thread:
+                self.ws_thread.stop()
