@@ -122,7 +122,7 @@ class Settings(BaseSettings):
     check_interval_seconds: int = Field(
         default=60,
         ge=1,
-        description="How often to check for updates (seconds)"
+        description="How often to check for updates (seconds) - Only used when WebSocket disabled"
     )
     historical_check_interval_seconds: int = Field(
         default=1,
@@ -136,6 +136,30 @@ class Settings(BaseSettings):
     enable_position_taking: bool = Field(
         default=True,
         description="Enable position taking strategy"
+    )
+
+    # ============================================
+    # WEBSOCKET CONFIGURATION
+    # ============================================
+    use_websocket: bool = Field(
+        default=True,
+        description="Enable real-time WebSocket updates (recommended)"
+    )
+    ws_ping_interval: int = Field(
+        default=10,
+        ge=5,
+        le=60,
+        description="WebSocket ping interval (seconds)"
+    )
+    ws_auto_reconnect: bool = Field(
+        default=True,
+        description="Automatically reconnect WebSocket on disconnect"
+    )
+    ws_max_reconnect_attempts: int = Field(
+        default=5,
+        ge=1,
+        le=20,
+        description="Maximum WebSocket reconnection attempts"
     )
 
     # ============================================
