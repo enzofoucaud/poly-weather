@@ -202,8 +202,21 @@ class TemperatureMarket:
 
     def days_until_target(self) -> int:
         """Calculate days until target date."""
+        from datetime import timezone
+
+        # Normalize both datetimes to compare properly
         now = datetime.now()
-        delta = self.target_date - now
+        target = self.target_date
+
+        # If target has timezone info, convert now to UTC
+        if target.tzinfo is not None:
+            now = now.replace(tzinfo=timezone.utc)
+        # If target is naive but now would be aware, strip timezone
+        else:
+            target = target.replace(tzinfo=None)
+            now = now.replace(tzinfo=None)
+
+        delta = target.date() - now.date()
         return delta.days
 
     def is_target_day(self) -> bool:
