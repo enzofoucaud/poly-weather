@@ -61,7 +61,8 @@ class PolymarketSimulator:
     def get_temperature_markets(
         self,
         city: str = "NYC",
-        active_only: bool = True
+        active_only: bool = True,
+        event_slug: Optional[str] = None
     ) -> List[TemperatureMarket]:
         """
         Get temperature markets (simulated).
@@ -70,6 +71,7 @@ class PolymarketSimulator:
         Args:
             city: City name
             active_only: Only return active markets
+            event_slug: Event slug (ignored in simulator)
 
         Returns:
             List of TemperatureMarket objects
