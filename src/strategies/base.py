@@ -5,6 +5,7 @@ Base strategy class for trading strategies.
 from abc import ABC, abstractmethod
 from typing import List, Optional, Dict
 from datetime import datetime
+import asyncio
 
 from ..models.market import TemperatureMarket, WeatherForecast
 from ..models.trade import Order, Position
@@ -38,7 +39,7 @@ class BaseStrategy(ABC):
         logger.info(f"Strategy '{name}' initialized")
 
     @abstractmethod
-    def analyze_market(
+    async def analyze_market(
         self,
         market: TemperatureMarket,
         forecast: WeatherForecast
@@ -56,7 +57,7 @@ class BaseStrategy(ABC):
         pass
 
     @abstractmethod
-    def should_adjust_position(
+    async def should_adjust_position(
         self,
         position: Position,
         market: TemperatureMarket,
@@ -75,7 +76,7 @@ class BaseStrategy(ABC):
         """
         pass
 
-    def execute_order(self, order: Order) -> bool:
+    async def execute_order(self, order: Order) -> bool:
         """
         Execute an order through the client.
 
@@ -86,7 +87,7 @@ class BaseStrategy(ABC):
             True if successful
         """
         try:
-            order_id = self.client.place_order(order)
+            order_id = await self.client.place_order(order)
             order.order_id = order_id
             order.timestamp = datetime.now()
 
@@ -100,10 +101,10 @@ class BaseStrategy(ABC):
             logger.error(f"[{self.name}] Failed to execute order: {e}")
             return False
 
-    def update_positions(self) -> None:
+    async def update_positions(self) -> None:
         """Update positions from the client."""
         try:
-            self.positions = self.client.get_positions()
+            self.positions = await self.client.get_positions()
             logger.debug(f"[{self.name}] Updated {len(self.positions)} positions")
 
         except Exception as e:
@@ -129,7 +130,7 @@ class BaseStrategy(ABC):
                 return position
         return None
 
-    def close_all_positions(self) -> int:
+    async def close_all_positions(self) -> int:
         """
         Close all open positions.
 
@@ -140,7 +141,7 @@ class BaseStrategy(ABC):
 
         for position in self.positions:
             try:
-                if self.client.close_position(position):
+                if await self.client.close_position(position):
                     closed += 1
                     logger.info(
                         f"[{self.name}] Closed position: {position.outcome_id[:8]}..."

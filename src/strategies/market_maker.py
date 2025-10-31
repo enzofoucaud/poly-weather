@@ -422,7 +422,7 @@ class MarketMakerStrategy(BaseStrategy):
         logger.info(f"[{self.name}] Stopping market making, cancelling all orders")
         self.cancel_all_orders()
 
-    def analyze_market(
+    async def analyze_market(
         self,
         market: TemperatureMarket,
         forecast: WeatherForecast
@@ -436,7 +436,7 @@ class MarketMakerStrategy(BaseStrategy):
         """
         return None
 
-    def should_adjust_position(
+    async def should_adjust_position(
         self,
         position: Position,
         market: TemperatureMarket,

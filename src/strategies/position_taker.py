@@ -61,7 +61,7 @@ class PositionTakerStrategy(BaseStrategy):
             f"Kelly fraction: {kelly_fraction}"
         )
 
-    def analyze_market(
+    async def analyze_market(
         self,
         market: TemperatureMarket,
         forecast: WeatherForecast
@@ -261,7 +261,7 @@ class PositionTakerStrategy(BaseStrategy):
 
         return exposure
 
-    def should_adjust_position(
+    async def should_adjust_position(
         self,
         position: Position,
         market: TemperatureMarket,
