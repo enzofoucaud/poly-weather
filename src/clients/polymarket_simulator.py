@@ -4,6 +4,7 @@ Simulates trading without executing real trades.
 """
 
 import uuid
+import asyncio
 from typing import List, Dict, Optional
 from datetime import datetime
 from collections import defaultdict
@@ -49,16 +50,16 @@ class PolymarketSimulator:
             f"Fee: {transaction_fee * 100:.2f}%"
         )
 
-    def get_balance(self) -> float:
+    async def get_balance(self) -> float:
         """Get current USDC balance."""
         return self.balance
 
-    def setup_allowances(self, amount: Optional[float] = None) -> bool:
+    async def setup_allowances(self, amount: Optional[float] = None) -> bool:
         """Simulate allowance setup (always succeeds in simulation)."""
         logger.info("[SIMULATOR] Allowances setup (simulated)")
         return True
 
-    def get_temperature_markets(
+    async def get_temperature_markets(
         self,
         city: str = "NYC",
         active_only: bool = True,
@@ -96,8 +97,8 @@ class PolymarketSimulator:
                     dry_run=True
                 )
 
-                # Fetch real markets
-                markets = real_client.get_temperature_markets(
+                # Fetch real markets (async call)
+                markets = await real_client.get_temperature_markets(
                     city=city,
                     active_only=active_only,
                     event_slug=event_slug
@@ -156,7 +157,7 @@ class PolymarketSimulator:
 
         return [market]
 
-    def get_market_orderbook(
+    async def get_market_orderbook(
         self,
         token_id: str,
         side: Optional[str] = None
@@ -188,7 +189,7 @@ class PolymarketSimulator:
             "spread": spread
         }
 
-    def place_order(self, order: Order) -> str:
+    async def place_order(self, order: Order) -> str:
         """
         Simulate placing an order.
 
@@ -328,7 +329,7 @@ class PolymarketSimulator:
                 self.positions[position_key] = position
                 logger.debug(f"[SIMULATOR] Position created: {position_key} -> {delta_shares:.2f} shares")
 
-    def cancel_order(self, order_id: str) -> bool:
+    async def cancel_order(self, order_id: str) -> bool:
         """Simulate canceling an order."""
         if order_id in self.orders:
             self.orders[order_id]["status"] = OrderStatus.CANCELLED
@@ -338,17 +339,17 @@ class PolymarketSimulator:
         logger.warning(f"[SIMULATOR] Order not found: {order_id}")
         return False
 
-    def get_order_status(self, order_id: str) -> OrderStatus:
+    async def get_order_status(self, order_id: str) -> OrderStatus:
         """Get simulated order status."""
         if order_id in self.orders:
             return self.orders[order_id]["status"]
         return OrderStatus.FAILED
 
-    def get_positions(self) -> List[Position]:
+    async def get_positions(self) -> List[Position]:
         """Get all open positions."""
         return list(self.positions.values())
 
-    def close_position(
+    async def close_position(
         self,
         position: Position,
         price: Optional[float] = None
@@ -375,7 +376,7 @@ class PolymarketSimulator:
                 price=sell_price
             )
 
-            self.place_order(order)
+            await self.place_order(order)
             return True
 
         except Exception as e:
