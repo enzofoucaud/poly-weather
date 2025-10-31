@@ -461,7 +461,7 @@ class TradingBot:
                             continue
 
                         logger.info(
-                            f"✅ Forecast: {forecast.max_temp}°F "
+                            f"✅ Forecast: {forecast.max_temperature}°F "
                             f"(confidence: {forecast.confidence:.0%})"
                         )
 
