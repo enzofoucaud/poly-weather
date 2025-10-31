@@ -5,6 +5,8 @@ Polymarket CLOB API client for trading temperature markets.
 from typing import List, Optional, Dict
 from datetime import datetime
 from decimal import Decimal
+import asyncio
+import aiohttp
 
 from py_clob_client.client import ClobClient
 from py_clob_client.clob_types import OrderArgs, OrderType as ClobOrderType
@@ -67,7 +69,7 @@ class PolymarketClient:
             logger.error(f"Failed to initialize Polymarket client: {e}")
             raise
 
-    def get_balance(self) -> float:
+    async def get_balance(self) -> float:
         """
         Get USDC balance.
 
@@ -79,8 +81,8 @@ class PolymarketClient:
             return 1000.0
 
         try:
-            # Get allowance info which includes balance
-            allowances = self.client.get_allowances()
+            # Get allowance info which includes balance (wrapped sync call)
+            allowances = await asyncio.to_thread(self.client.get_allowances)
             balance = float(allowances.get("balance", 0)) / 1e6  # Convert from wei
 
             logger.debug(f"USDC balance: {balance:.2f}")
@@ -90,7 +92,7 @@ class PolymarketClient:
             logger.error(f"Failed to get balance: {e}")
             return 0.0
 
-    def setup_allowances(self, amount: Optional[float] = None) -> bool:
+    async def setup_allowances(self, amount: Optional[float] = None) -> bool:
         """
         Setup USDC allowances for trading.
 
@@ -109,8 +111,8 @@ class PolymarketClient:
 
             # Approve the exchange contract to spend USDC
             # The py-clob-client handles this internally when needed
-            # but we can check current allowances
-            allowances = self.client.get_allowances()
+            # but we can check current allowances (wrapped sync call)
+            allowances = await asyncio.to_thread(self.client.get_allowances)
             current_allowance = float(allowances.get("allowance", 0)) / 1e6
 
             logger.info(f"Current allowance: {current_allowance:.2f} USDC")
@@ -128,7 +130,7 @@ class PolymarketClient:
             logger.error(f"Failed to setup allowances: {e}")
             return False
 
-    def get_temperature_markets(
+    async def get_temperature_markets(
         self,
         city: str = "NYC",
         active_only: bool = True,
@@ -153,12 +155,12 @@ class PolymarketClient:
             # Try event slug first if provided
             if event_slug:
                 logger.info(f"Searching by event slug: {event_slug}")
-                markets_data = self._search_events(event_slug)
+                markets_data = await self._search_events(event_slug)
 
             # Fall back to general search
             if not markets_data:
                 logger.info("Falling back to general market search")
-                markets_data = self._search_markets(f"temperature {city}")
+                markets_data = await self._search_markets(f"temperature {city}")
 
             # Parse markets
             if event_slug and markets_data:
@@ -309,7 +311,7 @@ class PolymarketClient:
 
         return [combined_market]
 
-    def _search_events(self, slug: str) -> List[Dict]:
+    async def _search_events(self, slug: str) -> List[Dict]:
         """
         Search for events by slug using Gamma API events endpoint.
 
@@ -320,8 +322,6 @@ class PolymarketClient:
             List of market data dictionaries from the event
         """
         try:
-            import requests
-
             # Use Polymarket's Gamma API events endpoint
             url = f"https://gamma-api.polymarket.com/events"
 
@@ -329,10 +329,11 @@ class PolymarketClient:
                 "slug": slug
             }
 
-            response = requests.get(url, params=params, timeout=10)
-            response.raise_for_status()
-
-            events = response.json()
+            timeout = aiohttp.ClientTimeout(total=10)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(url, params=params) as response:
+                    response.raise_for_status()
+                    events = await response.json()
 
             if not events:
                 logger.warning(f"No events found for slug: {slug}")
@@ -349,7 +350,7 @@ class PolymarketClient:
             logger.error(f"Event search failed for slug '{slug}': {e}")
             return []
 
-    def _search_markets(self, query: str) -> List[Dict]:
+    async def _search_markets(self, query: str) -> List[Dict]:
         """
         Search for markets by query using Gamma API.
 
@@ -360,8 +361,6 @@ class PolymarketClient:
             List of market data dictionaries
         """
         try:
-            import requests
-
             # Use Polymarket's Gamma API (public markets endpoint)
             url = "https://gamma-api.polymarket.com/markets"
 
@@ -371,10 +370,11 @@ class PolymarketClient:
                 "closed": "false"
             }
 
-            response = requests.get(url, params=params, timeout=10)
-            response.raise_for_status()
-
-            all_markets = response.json()
+            timeout = aiohttp.ClientTimeout(total=10)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(url, params=params) as response:
+                    response.raise_for_status()
+                    all_markets = await response.json()
 
             logger.debug(f"Fetched {len(all_markets)} markets from Gamma API")
 
@@ -594,7 +594,7 @@ class PolymarketClient:
             logger.error(f"Date parsing failed: {e}")
             return datetime.now()
 
-    def get_market_orderbook(
+    async def get_market_orderbook(
         self,
         token_id: str,
         side: Optional[str] = None
@@ -610,7 +610,8 @@ class PolymarketClient:
             Orderbook data with bids and asks
         """
         try:
-            orderbook = self.client.get_order_book(token_id)
+            # Wrapped sync call
+            orderbook = await asyncio.to_thread(self.client.get_order_book, token_id)
 
             bids = orderbook.get("bids", [])
             asks = orderbook.get("asks", [])
@@ -633,7 +634,7 @@ class PolymarketClient:
             logger.error(f"Failed to get orderbook for {token_id}: {e}")
             return {"bids": [], "asks": [], "best_bid": None, "best_ask": None, "spread": None}
 
-    def place_order(self, order: Order) -> str:
+    async def place_order(self, order: Order) -> str:
         """
         Place an order on Polymarket.
 
@@ -662,8 +663,8 @@ class PolymarketClient:
                 order_type=ClobOrderType.GTC  # Good til cancelled
             )
 
-            # Submit order
-            result = self.client.create_order(order_args)
+            # Submit order (wrapped sync call)
+            result = await asyncio.to_thread(self.client.create_order, order_args)
             order_id = result.get("orderID", "")
 
             logger.info(
@@ -687,7 +688,7 @@ class PolymarketClient:
             logger.error(f"Failed to place order: {e}")
             raise
 
-    def cancel_order(self, order_id: str) -> bool:
+    async def cancel_order(self, order_id: str) -> bool:
         """
         Cancel an order.
 
@@ -702,7 +703,8 @@ class PolymarketClient:
             return True
 
         try:
-            self.client.cancel_order(order_id)
+            # Wrapped sync call
+            await asyncio.to_thread(self.client.cancel_order, order_id)
             logger.info(f"Order cancelled: {order_id}")
             return True
 
@@ -710,7 +712,7 @@ class PolymarketClient:
             logger.error(f"Failed to cancel order {order_id}: {e}")
             return False
 
-    def get_order_status(self, order_id: str) -> OrderStatus:
+    async def get_order_status(self, order_id: str) -> OrderStatus:
         """
         Get order status.
 
@@ -724,7 +726,8 @@ class PolymarketClient:
             return OrderStatus.FILLED
 
         try:
-            order = self.client.get_order(order_id)
+            # Wrapped sync call
+            order = await asyncio.to_thread(self.client.get_order, order_id)
             status_str = order.get("status", "").upper()
 
             status_map = {
@@ -740,7 +743,7 @@ class PolymarketClient:
             logger.error(f"Failed to get order status for {order_id}: {e}")
             return OrderStatus.FAILED
 
-    def get_positions(self) -> List[Position]:
+    async def get_positions(self) -> List[Position]:
         """
         Get all open positions.
 
@@ -752,9 +755,9 @@ class PolymarketClient:
             return []
 
         try:
-            # Get user's positions from the API
+            # Get user's positions from the API (wrapped sync call)
             # This implementation depends on available endpoints
-            positions_data = self.client.get_positions()
+            positions_data = await asyncio.to_thread(self.client.get_positions)
 
             positions = []
             for pos_data in positions_data:
